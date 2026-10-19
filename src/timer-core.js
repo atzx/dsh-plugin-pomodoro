@@ -96,6 +96,12 @@ export function createState(settings) {
     deadline: null,
     completedFocus: 0,
     settings: canonical,
+    /** Task this focus phase is credited to (null when none). */
+    taskId: null,
+    /** Short title snapshot so the widget can show it without loading the board. */
+    taskTitle: null,
+    /** Epoch ms this running focus segment started; null while stopped. */
+    focusStartedAt: null,
   }
 }
 
@@ -278,6 +284,9 @@ export function serialize(state) {
     deadline: state.deadline,
     completedFocus: state.completedFocus,
     settings: state.settings,
+    taskId: state.taskId ?? null,
+    taskTitle: state.taskTitle ?? null,
+    focusStartedAt: state.focusStartedAt ?? null,
   }
 }
 
@@ -312,7 +321,113 @@ export function deserialize(raw, now) {
     return { phase, status: STATUS.PAUSED, remainingMs, deadline: null, completedFocus, settings }
   }
   if (status === STATUS.IDLE) remainingMs = duration
-  return { phase, status, remainingMs, deadline, completedFocus, settings }
+  return {
+    phase,
+    status,
+    remainingMs,
+    deadline,
+    completedFocus,
+    settings,
+    taskId: typeof record.taskId === 'string' && record.taskId.length > 0 ? record.taskId : null,
+    taskTitle: typeof record.taskTitle === 'string' && record.taskTitle.length > 0 ? record.taskTitle : null,
+    focusStartedAt: status === STATUS.RUNNING
+      && record.focusStartedAt !== null
+      && record.focusStartedAt !== undefined
+      && Number.isFinite(Number(record.focusStartedAt))
+      ? Number(record.focusStartedAt)
+      : null,
+  }
+}
+
+/* ─────────────────────── task focus accounting ─────────────────── */
+
+/**
+ * Mark the start of a measured focus segment: a running focus phase linked to a
+ * task begins counting wall-clock time now.
+ * @param {object} state - timer state.
+ * @param {number} now - epoch ms.
+ * @returns {object} next state with `focusStartedAt` set (or cleared).
+ */
+export function beginFocusSegment(state, now) {
+  if (state.phase !== PHASE.FOCUS || state.taskId === null || state.status !== STATUS.RUNNING) {
+    return { ...state, focusStartedAt: null }
+  }
+  return { ...state, focusStartedAt: now }
+}
+
+/**
+ * Close the current measured focus segment and return the time to credit.
+ * The segment never exceeds the phase duration (or the deadline, if earlier),
+ * so a suspended/slept tab cannot credit more than one pomodoro of work.
+ * @param {object} state - timer state.
+ * @param {number} endMs - epoch ms when the segment ended.
+ * @param {{pomodoros?: number}} [options] - pomodoro count when a phase completed.
+ * @returns {{state: object, credit: object|null}} settled state and credit.
+ */
+export function settleFocus(state, endMs, options = {}) {
+  if (state.taskId === null || state.phase !== PHASE.FOCUS || typeof state.focusStartedAt !== 'number') {
+    return { state: { ...state, focusStartedAt: null }, credit: null }
+  }
+  const hardEnd = typeof state.deadline === 'number' ? Math.min(endMs, state.deadline) : endMs
+  const deltaMs = Math.max(0, Math.min(hardEnd - state.focusStartedAt, phaseDuration(PHASE.FOCUS, state.settings)))
+  const credit = deltaMs > 0
+    ? {
+      taskId: state.taskId,
+      creditId: `${state.taskId}@${state.focusStartedAt}`,
+      deltaMs,
+      pomodoros: options.pomodoros ?? 0,
+    }
+    : null
+  return { state: { ...state, focusStartedAt: null }, credit }
+}
+
+/**
+ * Replay phases that finished while the page was closed, crediting every
+ * completed focus phase to the linked task with its nominal duration. The
+ * resulting running focus phase restarts its measured segment at the phase
+ * boundary, so the next settle measures only real time.
+ * @param {object} state - persisted timer state.
+ * @param {number} now - epoch ms.
+ * @param {number} [budget] - maximum transitions to replay.
+ * @returns {{state: object, credits: object[], completed: string[]}} caught-up state, credits and finished phases.
+ */
+export function catchUpFocus(state, now, budget = 24) {
+  let current = state
+  const credits = []
+  const completed = []
+  for (let index = 0; index < budget; index += 1) {
+    if (current.status !== STATUS.RUNNING || typeof current.deadline !== 'number' || current.deadline > now) break
+    const finished = current.phase
+    completed.push(finished)
+    const phaseStart = current.deadline - phaseDuration(finished, current.settings)
+    if (finished === PHASE.FOCUS && current.taskId !== null) {
+      credits.push({
+        taskId: current.taskId,
+        creditId: `${current.taskId}@${phaseStart}`,
+        deltaMs: phaseDuration(finished, current.settings),
+        pomodoros: 1,
+      })
+    }
+    current = tick(current, now).state
+  }
+  if (current.status === STATUS.RUNNING && current.phase === PHASE.FOCUS && typeof current.deadline === 'number') {
+    current = { ...current, focusStartedAt: current.deadline - phaseDuration(PHASE.FOCUS, current.settings) }
+  } else {
+    current = { ...current, focusStartedAt: null }
+  }
+  return { state: current, credits, completed }
+}
+
+/**
+ * Link a task to the timer (or clear it). Callers settle the previous segment
+ * first; this helper only records the new link.
+ * @param {object} state - timer state.
+ * @param {string|null} taskId - task id or null.
+ * @param {string|null} [title] - display title snapshot.
+ * @returns {object} next state.
+ */
+export function attachTask(state, taskId, title = null) {
+  return { ...state, taskId, taskTitle: title }
 }
 
 /**

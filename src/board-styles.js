@@ -165,6 +165,7 @@ export const BOARD_CSS = `
 .tb-cardTop { display: flex; align-items: flex-start; gap: 6px; }
 .tb-cardTitle { flex: 1; min-width: 0; font-size: 12.5px; line-height: 18px; word-break: break-word; }
 .tb-card[data-completed='true'] .tb-cardTitle { text-decoration: line-through; color: var(--dsw-alias-label-tertiary); }
+.tb-card[data-active='true'] { border-color: var(--dsw-alias-state-business-primary); box-shadow: 0 0 0 1px var(--dsw-alias-state-business-primary) inset; }
 .tb-cardMeta { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 .tb-chip {
   display: inline-flex; align-items: center; gap: 3px;

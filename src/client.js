@@ -24,14 +24,17 @@
 
 import * as React from 'react'
 import { NS, en, zh } from './locales.js'
-import { boardUiStore } from './board-store.js'
+import { activeTaskStore, boardStore, boardUiStore, focusBridge } from './board-store.js'
 import { TaskBoardPanel } from './board-ui.js'
 import { injectBoardStyles } from './board-styles.js'
 import {
   DEFAULT_SETTINGS,
   PHASE,
   STATUS,
+  attachTask,
+  beginFocusSegment,
   catchUp,
+  catchUpFocus,
   createState,
   cycleProgress,
   deserialize,
@@ -43,6 +46,7 @@ import {
   remaining,
   reset,
   serialize,
+  settleFocus,
   skip,
   start,
   updateSettings,
@@ -294,6 +298,23 @@ const CSS = `
   border-color: var(--dsw-alias-border-l3);
 }
 .pomo-ghost:disabled { opacity: .45; cursor: default; }
+
+.pomo-taskChip {
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 7px; border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-2);
+  border: 1px solid var(--dsw-alias-border-l2);
+  font-size: 11.5px; line-height: 16px;
+  color: var(--dsw-alias-label-secondary);
+}
+.pomo-taskChip::before { content: '▶'; color: var(--pomo-accent); font-size: 9px; flex: none; }
+.pomo-taskLabel { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pomo-taskClear {
+  width: 16px; height: 16px; padding: 0; border: 0; border-radius: 50%;
+  background: transparent; color: var(--dsw-alias-label-tertiary);
+  font: inherit; font-size: 12px; line-height: 1; cursor: pointer; flex: none;
+}
+.pomo-taskClear:hover { color: var(--dsw-alias-label-primary); background: var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,.12)); }
 
 .pomo-banner {
   padding: 6px 8px;
@@ -712,7 +733,22 @@ function SwitchRow({ setting, label, hint, checked, onToggle }) {
 function PomodoroWidget({ t }) {
   const prefs = React.useSyncExternalStore(subscribePrefs, getPrefs, getPrefs)
   const boardUi = React.useSyncExternalStore(boardUiStore.subscribe, boardUiStore.getSnapshot, boardUiStore.getSnapshot)
-  const initial = React.useMemo(() => loadTimerState(), [])
+
+  /** Send one measured focus credit; the board store queues it when offline. */
+  const sendCredit = React.useCallback(credit => {
+    if (credit === null || credit === undefined) return
+    void boardStore.creditTime(credit.taskId, credit.creditId, credit.deltaMs, credit.pomodoros ?? 0)
+  }, [])
+
+  /** Rehydrate the record and replay phases finished while the page was away. */
+  const initial = React.useMemo(() => {
+    const now = Date.now()
+    const stored = readJson(PLUGIN.storageKey)
+    const restored = stored === null ? createState(PLUGIN.settings) : deserialize(stored, now)
+    const caught = catchUpFocus(restored, now)
+    for (const credit of caught.credits) void boardStore.creditTime(credit.taskId, credit.creditId, credit.deltaMs, credit.pomodoros)
+    return caught.state
+  }, [])
 
   const stateRef = React.useRef(initial)
   const [, forceRender] = React.useReducer(count => count + 1, 0)
@@ -761,7 +797,8 @@ function PomodoroWidget({ t }) {
         t(isFocus ? 'notify.focusBody' : 'notify.breakBody', { minutes: nextMinutes }),
       )
     }
-    showBanner(t(isFocus ? 'done.focus' : finishedPhase === PHASE.LONG_BREAK ? 'done.longBreak' : 'done.shortBreak'))
+    const base = t(isFocus ? 'done.focus' : finishedPhase === PHASE.LONG_BREAK ? 'done.longBreak' : 'done.shortBreak')
+    showBanner(stateRef.current.taskTitle === null ? base : `${base} · ${stateRef.current.taskTitle}`)
   }, [showBanner, t])
 
   // Reconcile must keep one identity for the interval's lifetime, while still
@@ -776,8 +813,9 @@ function PomodoroWidget({ t }) {
    */
   const reconcile = React.useCallback(() => {
     const at = Date.now()
-    const result = catchUp(stateRef.current, at)
+    const result = catchUpFocus(stateRef.current, at)
     setNow(at)
+    for (const credit of result.credits) void boardStore.creditTime(credit.taskId, credit.creditId, credit.deltaMs, credit.pomodoros)
     if (result.completed.length === 0) {
       if (result.state !== stateRef.current) commit(result.state)
       return
@@ -843,24 +881,74 @@ function PomodoroWidget({ t }) {
     // The chime needs an audio context that was created inside a gesture.
     primeAudio()
     if (state.settings.notify) ensureNotificationPermission()
-    commit(start(stateRef.current, Date.now()))
-    setNow(Date.now())
+    const at = Date.now()
+    commit(beginFocusSegment(start(stateRef.current, at), at))
+    setNow(at)
   }
 
   const handlePause = () => {
-    commit(pause(stateRef.current, Date.now()))
-    setNow(Date.now())
+    const at = Date.now()
+    const paused = pause(stateRef.current, at)
+    const settled = settleFocus(paused, at)
+    sendCredit(settled.credit)
+    commit(settled.state)
+    setNow(at)
   }
 
   const handleReset = () => {
-    commit(reset(stateRef.current))
-    setNow(Date.now())
+    const at = Date.now()
+    const settled = settleFocus(stateRef.current, at)
+    sendCredit(settled.credit)
+    commit(reset(settled.state))
+    setNow(at)
   }
 
   const handleSkip = () => {
-    commit(skip(stateRef.current, Date.now()))
-    setNow(Date.now())
+    const at = Date.now()
+    const settled = settleFocus(stateRef.current, at)
+    sendCredit(settled.credit)
+    commit(skip(settled.state, at))
+    setNow(at)
   }
+
+  /** Board/drawer entry point: focus a task, crediting any previous segment. */
+  const startFocusOnTask = (taskId, title) => {
+    const at = Date.now()
+    let next = stateRef.current
+    if (next.taskId !== taskId) {
+      const settled = settleFocus(next, at)
+      sendCredit(settled.credit)
+      next = settled.state
+    }
+    if (next.phase !== PHASE.FOCUS) next = reset({ ...next, phase: PHASE.FOCUS })
+    if (next.status !== STATUS.RUNNING) next = start(next, at)
+    next = beginFocusSegment(attachTask(next, taskId, title ?? null), at)
+    primeAudio()
+    if (next.settings.notify) ensureNotificationPermission()
+    commit(next)
+    setNow(at)
+  }
+
+  /** Detach the task (crediting the current measured segment). */
+  const clearFocusTask = () => {
+    const at = Date.now()
+    const settled = settleFocus(stateRef.current, at)
+    sendCredit(settled.credit)
+    commit(attachTask(settled.state, null, null))
+    setNow(at)
+  }
+
+  const focusStartRef = React.useRef(null)
+  focusStartRef.current = startFocusOnTask
+  React.useEffect(() => {
+    focusBridge.start = (taskId, title) => focusStartRef.current?.(taskId, title)
+    return () => { focusBridge.start = null }
+  }, [])
+
+  // Keep the board's active-task indicator in step with the timer.
+  React.useEffect(() => {
+    activeTaskStore.set(state.taskId, state.taskTitle)
+  })
 
   const patchSettings = patch => {
     const next = updateSettings(stateRef.current, patch)
@@ -968,6 +1056,17 @@ function PomodoroWidget({ t }) {
     h('div', { className: 'pomo-cycles', 'aria-hidden': 'true' },
       cycleDots,
       h('span', { className: 'pomo-cycleCount' }, t('timer.sessionCount', { count: state.completedFocus }))),
+    state.taskId !== null
+      ? h('div', { className: 'pomo-taskChip' },
+        h('span', { className: 'pomo-taskLabel', title: state.taskTitle ?? '' }, state.taskTitle ?? t('focus.untitled')),
+        h('button', {
+          type: 'button',
+          className: 'pomo-taskClear',
+          'aria-label': t('focus.clear'),
+          title: t('focus.clear'),
+          onClick: clearFocusTask,
+        }, '×'))
+      : null,
     h('div', { className: 'pomo-actions' },
       state.status === STATUS.RUNNING
         ? h('button', {
@@ -1098,7 +1197,7 @@ function PomodoroWidget({ t }) {
       'data-pomo-action': 'toggle',
       onClick: toggleExpanded,
       'aria-label': t('widget.open'),
-      title: `${t('widget.label')} — ${clock}`,
+      title: state.taskTitle === null ? `${t('widget.label')} — ${clock}` : `${state.taskTitle} — ${clock}`,
     },
     h('span', { className: 'pomo-pillIcon' }, h(TomatoIcon, { size: 15 })),
     h('span', { className: 'pomo-pillTime' }, clock),

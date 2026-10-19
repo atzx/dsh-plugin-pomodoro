@@ -25,7 +25,7 @@ import {
   shiftDateKey,
   sortTasks,
 } from './tasks-core.js'
-import { boardStore, boardUiStore } from './board-store.js'
+import { activeTaskStore, boardStore, boardUiStore, focusBridge } from './board-store.js'
 
 /** createElement alias (the other modules keep their own to avoid collisions). */
 const bh = BoardReact.createElement
@@ -38,6 +38,11 @@ function useBoardUi() {
 /** Subscribe to the board data store. */
 function useBoardData() {
   return BoardReact.useSyncExternalStore(boardStore.subscribe, boardStore.getSnapshot, boardStore.getSnapshot)
+}
+
+/** Subscribe to the timer's active task. */
+function useActiveTask() {
+  return BoardReact.useSyncExternalStore(activeTaskStore.subscribe, activeTaskStore.getSnapshot, activeTaskStore.getSnapshot)
 }
 
 /** Close a menu on an outside pointer press. */
@@ -114,6 +119,7 @@ function TaskBoardIconButton({ label, onClick, children, pressed }) {
  * detail drawer arrives in M3).
  */
 function TaskBoardCard({ t, task, board, today, onOpen }) {
+  const active = useActiveTask()
   const [menuOpen, setMenuOpen] = BoardReact.useState(false)
   const menuRef = BoardReact.useRef(null)
   const closeMenu = BoardReact.useCallback(() => setMenuOpen(false), [])
@@ -148,12 +154,18 @@ function TaskBoardCard({ t, task, board, today, onOpen }) {
   return bh('div', {
     className: 'tb-card',
     'data-completed': completed ? 'true' : 'false',
+    'data-active': active.taskId === task.id ? 'true' : 'false',
     'data-task-id': task.id,
     onClick: () => onOpen?.(task.id),
   },
   bh('div', { className: 'tb-cardTop' },
     bh('span', { className: 'tb-cardTitle' }, task.title),
     bh('div', { className: 'tb-cardActions' },
+      bh(TaskBoardIconButton, {
+        label: active.taskId === task.id ? t('card.focusing') : t('card.focus'),
+        pressed: active.taskId === task.id,
+        onClick: event => { event.stopPropagation(); focusBridge.start?.(task.id, task.title) },
+      }, '▶'),
       bh(TaskBoardIconButton, {
         label: completed ? t('card.uncomplete') : t('card.complete'),
         onClick: event => { event.stopPropagation(); void complete() },
@@ -186,6 +198,7 @@ function TaskBoardCard({ t, task, board, today, onOpen }) {
           onClick: () => void remove(),
         }, t('card.delete'))) : null))),
   bh('div', { className: 'tb-cardMeta' },
+    active.taskId === task.id ? bh('span', { className: 'tb-chip', 'data-tone': 'today' }, '▶ ', t('card.focusing')) : null,
     bh(TaskBoardPriorityChip, { t, priority: task.priority }),
     ...(task.labelIds ?? []).map(id => bh(TaskBoardLabelChip, { key: id, label: labels[id] })),
     bh(TaskBoardDueChip, { t, task, today }),
@@ -605,6 +618,7 @@ function TaskBoardSubtaskList({ t, task }) {
  * through `boardStore` with the host as the source of truth.
  */
 function TaskBoardDrawer({ t, task, board, onClose, onManageLabels }) {
+  const active = useActiveTask()
   const [title, setTitle] = React.useState(task.title)
   const [notes, setNotes] = React.useState(task.notes)
   const [estimate, setEstimate] = React.useState(task.estimateMin === null || task.estimateMin === undefined ? '' : String(task.estimateMin))
@@ -654,6 +668,13 @@ function TaskBoardDrawer({ t, task, board, onClose, onManageLabels }) {
   },
   bh('header', { className: 'tb-drawerHeader' },
     bh('span', { className: 'tb-drawerHeading' }, t('drawer.title')),
+    bh('button', {
+      type: 'button',
+      className: 'tb-btn',
+      'data-variant': active.taskId === task.id ? 'primary' : undefined,
+      'aria-pressed': active.taskId === task.id,
+      onClick: () => focusBridge.start?.(task.id, task.title),
+    }, active.taskId === task.id ? t('card.focusing') : '▶ ' + t('card.focus')),
     bh(TaskBoardIconButton, { label: t('drawer.close'), onClick: onClose }, '×')),
   bh('div', { className: 'tb-drawerBody' },
     bh('div', { className: 'tb-field' },

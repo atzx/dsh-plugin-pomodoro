@@ -12,8 +12,12 @@ import {
   BOARD_UI_DEFAULTS,
   BOARD_UI_KEY,
   BoardApiError,
+  PENDING_CREDITS_KEY,
+  activeTaskStore,
+  createActiveTaskStore,
   createBoardStore,
   createBoardUiStore,
+  focusBridge,
 } from '../src/board-store.js'
 
 const BOARD = { version: 1, id: 'b', title: 'Board', lists: [{ id: 'todo', title: 'To Do', position: 0, isDone: false }], labels: [], tasks: [] }
@@ -257,6 +261,109 @@ test('invalid persisted presentation values fall back to defaults', () => {
   try {
     const store = createBoardUiStore({ storageKey: 'bad' })
     assert.deepEqual(store.getSnapshot(), { ...BOARD_UI_DEFAULTS, open: false })
+  } finally {
+    if (previous === undefined) delete globalThis.localStorage
+    else globalThis.localStorage = previous
+  }
+})
+
+test('active-task store publishes task changes', () => {
+  const store = createActiveTaskStore()
+  const seen = []
+  const off = store.subscribe(() => seen.push(store.getSnapshot()))
+  assert.deepEqual(store.getSnapshot(), { taskId: null, title: null })
+  store.set('t1', 'Write')
+  store.set('t1', 'Write')
+  store.set(null, null)
+  assert.deepEqual(seen, [{ taskId: 't1', title: 'Write' }, { taskId: null, title: null }])
+  off()
+  store.set('t2', 'Ignored')
+  assert.equal(seen.length, 2)
+  assert.deepEqual(activeTaskStore.getSnapshot(), { taskId: null, title: null })
+  assert.equal(focusBridge.start, null)
+})
+
+test('creditTime sends a measured segment and never queues a zero credit', async () => {
+  const fetchImpl = fetchStub({
+    [BOARD_API.command]: { revision: 3, changed: true, board: BOARD },
+  })
+  const store = createBoardStore({ fetchImpl, pollMs: 0 })
+  const result = await store.creditTime('t1', 'credit-1', 1500, 1)
+  assert.equal(result.ok, true)
+  await new Promise(resolve => setImmediate(resolve))
+  const sent = JSON.parse(fetchImpl.calls.find(call => call.path === BOARD_API.command).init.body)
+  assert.deepEqual(sent, { op: 'task.addTime', payload: { taskId: 't1', creditId: 'credit-1', deltaMs: 1500, pomodoros: 1 } })
+
+  const zero = await store.creditTime('t1', 'credit-zero', 0, 0)
+  assert.equal(zero.ok, true)
+  assert.equal(fetchImpl.calls.filter(call => call.path === BOARD_API.command).length, 1)
+})
+
+test('a failed credit is queued and flushed later', async () => {
+  let failing = true
+  const fetchImpl = async path => {
+    if (path !== BOARD_API.command) return reply({ error: { code: 'not-found', message: 'no route' } }, 404)
+    return failing
+      ? reply({ error: { code: 'offline', message: 'host down' } }, 500)
+      : reply({ revision: 4, changed: true, board: BOARD })
+  }
+  const storage = storageStub()
+  const previous = globalThis.localStorage
+  globalThis.localStorage = storage
+  try {
+    const store = createBoardStore({ fetchImpl, pollMs: 0, pendingKey: 'pending-test' })
+    const failed = await store.creditTime('t1', 'credit-offline', 900, 0)
+    assert.equal(failed.ok, false)
+    const pending = store.getPendingCredits()
+    assert.equal(pending.length, 1)
+    assert.deepEqual(pending[0], { taskId: 't1', creditId: 'credit-offline', deltaMs: 900, pomodoros: 0 })
+
+    failing = false
+    await store.flushPendingCredits()
+    assert.deepEqual(store.getPendingCredits(), [])
+    assert.equal(JSON.parse(storage.dump()['pending-test']).length, 0)
+  } finally {
+    if (previous === undefined) delete globalThis.localStorage
+    else globalThis.localStorage = previous
+  }
+})
+
+test('flushing drops credits for tasks that no longer exist', async () => {
+  const storage = storageStub({
+    pending: JSON.stringify([{ taskId: 'gone', creditId: 'c', deltaMs: 10, pomodoros: 0 }]),
+  })
+  const fetchImpl = fetchStub({
+    [BOARD_API.command]: async () => reply({ error: { code: 'unknown-task', message: 'no task' } }, 404),
+  })
+  const previous = globalThis.localStorage
+  globalThis.localStorage = storage
+  try {
+    const store = createBoardStore({ fetchImpl, pollMs: 0, pendingKey: 'pending' })
+    await store.flushPendingCredits()
+    assert.deepEqual(store.getPendingCredits(), [])
+  } finally {
+    if (previous === undefined) delete globalThis.localStorage
+    else globalThis.localStorage = previous
+  }
+})
+
+test('opening the board flushes queued credits', async () => {
+  const storage = storageStub({
+    pending: JSON.stringify([{ taskId: 't1', creditId: 'queued', deltaMs: 5, pomodoros: 0 }]),
+  })
+  const fetchImpl = fetchStub({
+    [BOARD_API.state]: { revision: 1, board: BOARD },
+    [BOARD_API.command]: { revision: 2, changed: true, board: BOARD },
+  })
+  const previous = globalThis.localStorage
+  globalThis.localStorage = storage
+  try {
+    const store = createBoardStore({ fetchImpl, pollMs: 0, pendingKey: 'pending' })
+    await store.open()
+    await new Promise(resolve => setImmediate(resolve))
+    assert.deepEqual(store.getPendingCredits(), [])
+    assert.ok(fetchImpl.calls.some(call => call.path === BOARD_API.command))
+    store.dispose()
   } finally {
     if (previous === undefined) delete globalThis.localStorage
     else globalThis.localStorage = previous

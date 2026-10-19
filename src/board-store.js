@@ -37,6 +37,37 @@ export const BOARD_UI_DEFAULTS = Object.freeze({
 /** Cross-window change announcement. */
 export const BOARD_CHANNEL = 'dsh-plugin-pomodoro-board'
 
+/** localStorage key for measured focus time waiting to reach the host. */
+export const PENDING_CREDITS_KEY = 'dsh-plugin-pomodoro:pending-credits:v1'
+
+/**
+ * Bridge the board UI uses to control the timer without importing the widget:
+ * the widget installs `start(taskId, title)` and clears it on unmount.
+ */
+export const focusBridge = { start: null }
+
+/** Observable "task currently focused by the timer" snapshot. */
+export function createActiveTaskStore() {
+  let snapshot = { taskId: null, title: null }
+  const listeners = new Set()
+  return {
+    getSnapshot: () => snapshot,
+    subscribe(listener) {
+      listeners.add(listener)
+      return () => { listeners.delete(listener) }
+    },
+    /** Record the active task (or clear it with nulls). */
+    set(taskId, title = null) {
+      if (snapshot.taskId === taskId && snapshot.title === title) return
+      snapshot = { taskId, title }
+      for (const listener of [...listeners]) listener()
+    },
+  }
+}
+
+/** Singleton active-task store used by the bundle. */
+export const activeTaskStore = createActiveTaskStore()
+
 /** Typed transport failure the UI can word. */
 export class BoardApiError extends Error {
   /**
@@ -151,6 +182,8 @@ export function createBoardStore(options = {}) {
   const setIntervalFn = options.setInterval ?? ((fn, ms) => setInterval(fn, ms))
   const clearIntervalFn = options.clearInterval ?? (id => clearInterval(id))
   const channelFactory = options.createChannel ?? (name => (typeof BroadcastChannel === 'function' ? new BroadcastChannel(name) : null))
+  const pendingKey = options.pendingKey ?? PENDING_CREDITS_KEY
+  let flushing = false
 
   let snapshot = EMPTY_SNAPSHOT
   const listeners = new Set()
@@ -221,6 +254,7 @@ export function createBoardStore(options = {}) {
     try {
       const data = await request(BOARD_API.state)
       set({ status: 'ready', error: null, revision: data.revision, board: data.board, syncedAt: now() })
+      void flushPendingCredits()
       return true
     } catch (error) {
       set({ status: 'error', error: error instanceof Error ? error.message : String(error) })
@@ -259,6 +293,63 @@ export function createBoardStore(options = {}) {
     }
   }
 
+  /* ── measured focus time ─────────────────────────────────────── */
+
+  const readPending = () => {
+    const raw = readBoardStorage(pendingKey)
+    if (!Array.isArray(raw)) return []
+    return raw.filter(entry => entry !== null && typeof entry === 'object'
+      && typeof entry.taskId === 'string' && typeof entry.creditId === 'string'
+      && Number.isFinite(Number(entry.deltaMs)))
+  }
+  const writePending = entries => writeBoardStorage(pendingKey, entries)
+
+  /**
+   * Send one measured focus credit. On transport failure the credit is queued
+   * locally; credit ids make retries idempotent on the host.
+   * @param {string} taskId - task to credit.
+   * @param {string} creditId - stable segment identity.
+   * @param {number} deltaMs - measured focus milliseconds.
+   * @param {number} [pomodoros] - 1 when the phase completed.
+   * @returns {Promise<{ok: boolean, error?: Error}>} outcome.
+   */
+  async function creditTime(taskId, creditId, deltaMs, pomodoros = 0) {
+    const entry = { taskId, creditId, deltaMs: Math.max(0, Math.round(deltaMs)), pomodoros: pomodoros > 0 ? 1 : 0 }
+    if (entry.deltaMs <= 0 && entry.pomodoros === 0) return { ok: true }
+    const result = await command('task.addTime', entry)
+    if (result.ok) {
+      void flushPendingCredits()
+      return { ok: true }
+    }
+    const pending = readPending()
+    if (!pending.some(item => item.creditId === entry.creditId)) {
+      pending.push(entry)
+      writePending(pending)
+    }
+    return { ok: false, error: result.error }
+  }
+
+  /** Retry queued credits (called after a successful load/open). */
+  async function flushPendingCredits() {
+    if (flushing || fetchImpl === null) return
+    const pending = readPending()
+    if (pending.length === 0) return
+    flushing = true
+    try {
+      const remaining = []
+      for (const entry of pending) {
+        const result = await command('task.addTime', entry)
+        if (!result.ok) {
+          const code = result.error instanceof BoardApiError ? result.error.code : ''
+          if (code !== 'unknown-task') remaining.push(entry)
+        }
+      }
+      writePending(remaining)
+    } finally {
+      flushing = false
+    }
+  }
+
   return {
     getSnapshot: () => snapshot,
     subscribe(listener) {
@@ -268,9 +359,13 @@ export function createBoardStore(options = {}) {
     open() {
       ensureChannel()
       startPolling()
+      void flushPendingCredits()
       if (snapshot.status === 'ready') return Promise.resolve(true)
       return load()
     },
+    creditTime,
+    flushPendingCredits,
+    getPendingCredits: () => readPending(),
     close() {
       stopPolling()
     },

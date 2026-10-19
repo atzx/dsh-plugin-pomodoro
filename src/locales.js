@@ -133,6 +133,10 @@ export const en = {
   'list.confirmDelete': 'Delete “{name}”? Its tasks move to the list you pick.',
   'list.moveTasksTo': 'Move its tasks to',
 
+  'card.focus': 'Focus on task',
+  'card.focusing': 'Focusing',
+  'focus.untitled': 'Focused task',
+  'focus.clear': 'Stop crediting this task',
   'card.complete': 'Mark complete',
   'card.uncomplete': 'Mark incomplete',
   'card.menu': 'Task actions',
@@ -333,6 +337,10 @@ export const zh = {
   'list.confirmDelete': '删除“{name}”？其任务将移动到所选的列表。',
   'list.moveTasksTo': '将其任务移动到',
 
+  'card.focus': '专注此任务',
+  'card.focusing': '专注中',
+  'focus.untitled': '已关联任务',
+  'focus.clear': '停止关联此任务',
   'card.complete': '标记完成',
   'card.uncomplete': '标记未完成',
   'card.menu': '任务操作',

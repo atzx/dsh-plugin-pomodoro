@@ -369,3 +369,46 @@ test('opening the board flushes queued credits', async () => {
     else globalThis.localStorage = previous
   }
 })
+
+test('exportJson reads the host envelope and downloadExport is DOM-guarded', async () => {
+  const envelope = { format: 'dsh-pomodoro-board', version: 1, board: BOARD }
+  const fetchImpl = fetchStub({ [BOARD_API.export]: envelope })
+  const store = createBoardStore({ fetchImpl, pollMs: 0 })
+  assert.deepEqual(await store.exportJson(), envelope)
+  const download = await store.downloadExport()
+  assert.equal(download.ok, true)
+  assert.equal(typeof document, 'undefined')
+})
+
+test('replaceBoard posts an import and adopts the new board', async () => {
+  const next = { ...BOARD, title: 'Imported', lists: [{ id: 'l1', title: 'Pendiente', position: 0, isDone: false }], tasks: [] }
+  const fetchImpl = fetchStub({
+    [BOARD_API.import]: { revision: 9, board: next },
+  })
+  const store = createBoardStore({ fetchImpl, pollMs: 0 })
+  const result = await store.replaceBoard({ format: 'dsh-pomodoro-board', version: 1, board: next })
+  assert.deepEqual(result, { ok: true, revision: 9 })
+  assert.equal(store.getSnapshot().board.title, 'Imported')
+  const sent = JSON.parse(fetchImpl.calls.find(call => call.path === BOARD_API.import).init.body)
+  assert.equal(sent.mode, 'replace')
+  assert.equal(sent.board.title, 'Imported')
+})
+
+test('replaceBoard surfaces a rejected import', async () => {
+  const fetchImpl = fetchStub({
+    [BOARD_API.import]: async () => reply({ error: { code: 'invalid-import', message: 'bad board' } }, 400),
+  })
+  const store = createBoardStore({ fetchImpl, pollMs: 0 })
+  const result = await store.replaceBoard({ board: { lists: [] } })
+  assert.equal(result.ok, false)
+  assert.equal(result.error.code, 'invalid-import')
+  assert.match(store.getSnapshot().error, /bad board/)
+})
+
+test('reorderLists sends the full ordered id list', async () => {
+  const fetchImpl = fetchStub({ [BOARD_API.command]: { revision: 2, changed: true, board: BOARD } })
+  const store = createBoardStore({ fetchImpl, pollMs: 0 })
+  await store.reorderLists(['done', 'todo', 'doing'])
+  const sent = JSON.parse(fetchImpl.calls.at(-1).init.body)
+  assert.deepEqual(sent, { op: 'list.reorder', payload: { ids: ['done', 'todo', 'doing'] } })
+})

@@ -387,8 +387,31 @@ export const BOARD_CSS = `
 .tb-checkItem[data-checked='true'] { border-color: var(--dsw-alias-state-business-primary); color: var(--dsw-alias-label-primary); background: var(--dsw-alias-bg-layer-2); }
 .tb-checkItem:focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary); outline-offset: 1px; }
 
+.tb-dragHandle {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 16px; height: 22px; flex: none;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px; line-height: 1; cursor: grab; user-select: none;
+  border-radius: 4px;
+}
+.tb-dragHandle:hover { color: var(--dsw-alias-label-primary); background: var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,.12)); }
+.tb-dragHandle:focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary); outline-offset: 1px; }
+.tb-column[data-drop='true'] { border-color: var(--dsw-alias-state-business-primary); }
+.tb-column[data-drop='true'] .tb-columnTasks { background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 6%, transparent); border-radius: 8px; }
+.tb-dropLine {
+  height: 2px; margin: 2px 0; border-radius: 2px;
+  background: var(--dsw-alias-state-business-primary);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--dsw-alias-state-business-primary) 30%, transparent);
+}
+.tb-card[data-dragging='true'] { opacity: .45; }
+.tb-srOnly {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
 @media (max-width: 900px) {
   .tb-backdrop { padding: 8px; }
+  .tb-header { gap: 6px; }
+  .tb-header .tb-search { flex: 1 1 100%; order: 2; }
   .tb-rail { width: 168px; }
   .tb-column { width: 250px; }
   .tb-drawer { width: 100%; }

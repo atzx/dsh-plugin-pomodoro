@@ -146,6 +146,20 @@ export const en = {
 
   'action.cancel': 'Cancel',
 
+  'board.menu': 'Board menu',
+  'board.export': 'Export JSON',
+  'board.import': 'Import JSON',
+  'board.importConfirm': 'Import board',
+  'board.importSummary': 'Replace the current board with {lists} lists, {tasks} tasks and {labels} labels? This cannot be undone.',
+  'board.importInvalid': 'That file is not a valid board export.',
+  'board.importReplace': 'Replace board',
+
+  'a11y.moved': 'Moved {title} to {list}',
+  'a11y.completed': 'Completed {title}',
+  'a11y.reopened': 'Reopened {title}',
+  'a11y.reorderedLists': 'Reordered lists',
+
+  'list.dragHandle': 'Drag to reorder lists',
   'board.newTask': 'New task',
 
   'drawer.title': 'Task details',
@@ -350,6 +364,20 @@ export const zh = {
 
   'action.cancel': '取消',
 
+  'board.menu': '看板菜单',
+  'board.export': '导出 JSON',
+  'board.import': '导入 JSON',
+  'board.importConfirm': '导入看板',
+  'board.importSummary': '用 {lists} 个列表、{tasks} 个任务和 {labels} 个标签替换当前看板？此操作无法撤销。',
+  'board.importInvalid': '该文件不是有效的看板导出。',
+  'board.importReplace': '替换看板',
+
+  'a11y.moved': '已将 {title} 移动到 {list}',
+  'a11y.completed': '已完成 {title}',
+  'a11y.reopened': '已重新打开 {title}',
+  'a11y.reorderedLists': '已重新排序列表',
+
+  'list.dragHandle': '拖动以重新排序列表',
   'board.newTask': '新建任务',
 
   'drawer.title': '任务详情',

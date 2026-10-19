@@ -350,6 +350,49 @@ export function createBoardStore(options = {}) {
     }
   }
 
+  /* ── export / import ─────────────────────────────────────────── */
+
+  /** Fetch the host's JSON export envelope. */
+  async function exportJson() {
+    return request(BOARD_API.export)
+  }
+
+  /** Replace the board from an export envelope (or a bare board). */
+  async function replaceBoard(payload) {
+    const body = payload !== null && typeof payload === 'object' && payload.format === 'dsh-pomodoro-board'
+      ? payload
+      : { board: payload }
+    try {
+      const data = await request(BOARD_API.import, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ mode: 'replace', ...body }),
+      })
+      set({ status: 'ready', revision: data.revision, board: data.board, syncedAt: now(), error: null })
+      channel?.postMessage({ type: 'changed' })
+      return { ok: true, revision: data.revision }
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : String(error) })
+      return { ok: false, error }
+    }
+  }
+
+  /** Trigger a JSON download through the browser (no-op outside a DOM). */
+  async function downloadExport() {
+    const envelope = await exportJson()
+    if (typeof document === 'undefined' || typeof URL === 'undefined') return { ok: true }
+    const blob = new Blob([JSON.stringify(envelope, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `pomodoro-board-${new Date().toISOString().slice(0, 10)}.json`
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 10_000)
+    return { ok: true }
+  }
+
   return {
     getSnapshot: () => snapshot,
     subscribe(listener) {
@@ -366,6 +409,9 @@ export function createBoardStore(options = {}) {
     creditTime,
     flushPendingCredits,
     getPendingCredits: () => readPending(),
+    exportJson,
+    replaceBoard,
+    downloadExport,
     close() {
       stopPolling()
     },
@@ -398,6 +444,7 @@ export function createBoardStore(options = {}) {
     createLabel(name, color) { return command('label.create', { name, color }) },
     updateLabel(id, patch) { return command('label.update', { id, ...patch }) },
     deleteLabel(id) { return command('label.delete', { id }) },
+    reorderLists(ids) { return command('list.reorder', { ids }) },
   }
 }
 

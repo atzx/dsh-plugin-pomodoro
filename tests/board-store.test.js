@@ -194,6 +194,24 @@ test('convenience commands map to the host operations', async () => {
 
   await store.toggleSubtask('s1', true)
   assert.deepEqual(sent(), { op: 'subtask.update', payload: { id: 's1', done: true } })
+
+  await store.addSubtask('t1', 'child')
+  assert.deepEqual(sent(), { op: 'subtask.create', payload: { taskId: 't1', title: 'child' } })
+
+  await store.updateSubtask('s1', { title: 'renamed' })
+  assert.deepEqual(sent(), { op: 'subtask.update', payload: { id: 's1', title: 'renamed' } })
+
+  await store.deleteSubtask('s1')
+  assert.deepEqual(sent(), { op: 'subtask.delete', payload: { id: 's1' } })
+
+  await store.createLabel('diseño', 'blue')
+  assert.deepEqual(sent(), { op: 'label.create', payload: { name: 'diseño', color: 'blue' } })
+
+  await store.updateLabel('l1', { color: 'red' })
+  assert.deepEqual(sent(), { op: 'label.update', payload: { id: 'l1', color: 'red' } })
+
+  await store.deleteLabel('l1')
+  assert.deepEqual(sent(), { op: 'label.delete', payload: { id: 'l1' } })
 })
 
 test('presentation store defaults, persists view (not open) and resets', () => {

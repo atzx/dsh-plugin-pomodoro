@@ -296,7 +296,13 @@ export function createBoardStore(options = {}) {
       return command('task.move', position === undefined ? { id, listId } : { id, listId, position })
     },
     deleteTask(id) { return command('task.delete', { id }) },
+    addSubtask(taskId, title) { return command('subtask.create', { taskId, title }) },
+    updateSubtask(id, patch) { return command('subtask.update', { id, ...patch }) },
+    deleteSubtask(id) { return command('subtask.delete', { id }) },
     toggleSubtask(subtaskId, done) { return command('subtask.update', { id: subtaskId, done }) },
+    createLabel(name, color) { return command('label.create', { name, color }) },
+    updateLabel(id, patch) { return command('label.update', { id, ...patch }) },
+    deleteLabel(id) { return command('label.delete', { id }) },
   }
 }
 

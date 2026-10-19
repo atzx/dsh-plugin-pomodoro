@@ -412,6 +412,22 @@ WRONG_REV_STATUS="$(curl -sS -o /dev/null -w '%{http_code}' "$ROOT/plugins/??$NA
   || { bad "wrong rev returned $WRONG_REV_STATUS (expected 404)"; exit 1; }
 
 say ""
+say "Board host (SQLite)"
+BOARD_STATUS="$(curl -sS -b "$COOKIE_JAR" -o "$TMP_ROOT/board.json" -w '%{http_code}' "$ROOT/api/pomodoro-board/state")"
+[ "$BOARD_STATUS" = 200 ] && ok 'GET /api/pomodoro-board/state returned 200' \
+  || { bad "GET /api/pomodoro-board/state returned $BOARD_STATUS"; exit 1; }
+BOARD_LISTS="$(BOARD_FILE="$TMP_ROOT/board.json" "$NODE" -e '
+const fs = require("fs")
+const body = JSON.parse(fs.readFileSync(process.env.BOARD_FILE, "utf8"))
+const lists = body.board && Array.isArray(body.board.lists) ? body.board.lists.map((list) => list.title) : []
+process.stdout.write(JSON.stringify({ revision: body.revision, lists }))
+')"
+ok "board state: $BOARD_LISTS"
+BOARD_DB="$TMP_HOME/pomodoro/board.sqlite"
+[ -f "$BOARD_DB" ] && ok 'SQLite database created under the temporary DSH home' \
+  || { bad "SQLite database missing at $BOARD_DB"; exit 1; }
+
+say ""
 if [ "$KEEP" -eq 1 ]; then
   say 'PASS — checks passed. Instance kept running for a manual browser check:'
   say "  URL:     $URL"

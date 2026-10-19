@@ -4,10 +4,12 @@ Status: **executed on this machine on 2026-10-19.** The package was installed in
 `~/.dsh/profiles/desktop` with the app's bundled CLI (backups:
 `package.json.bak-pomodoro-20261019-042332`, `cordis.patch.yml.bak-pomodoro-20261019-042332`).
 The running app was not restarted during the editing session, so the desktop window still shows
-the pre-install state; a relaunch is required for it to load the plugin. Every live check below
+the pre-install state; a relaunch is required for it to load the plugin. v0.2.1 also adds the task
+board: on the next host start it creates `$DSH_HOME/pomodoro/board.sqlite` and serves the five
+`/api/pomodoro-board/*` routes through the connection carrier. Every live check below
 was performed against throw-away, isolated DSH instances under `/tmp`.
 
-Target package: [`pomodoro-plugin`](../README.md) — name **`dsh-plugin-pomodoro`** (v0.1.0),
+Target package: [`pomodoro-plugin`](../README.md) — name **`dsh-plugin-pomodoro`** (v0.2.1),
 a browser-only DSH client plugin with an empty host half and its own bundle patch file.
 
 Verified against:
@@ -64,6 +66,8 @@ ls       "$PROFILE/pnpm-lock.yaml"                   # created by the install
 #    Plugins (sidebar) -> Installed plugins -> dsh-plugin-pomodoro then offers:
 #      - the bundle switch on the card and the Component (unload) switch on the page;
 #      - Configure, opening the plugin's own page (Floating timer switch + timer settings).
+#    Board: press B (or the board button on the timer) to open it. Its data is the host's
+#    $DSH_HOME/pomodoro/board.sqlite; the daily backup lives beside it as board.sqlite.bak.
 ```
 
 If the app ever fails to start after a bad install, use the in-app recovery dialog
@@ -545,8 +549,10 @@ non-reserved profile name) booted with 75 entries and the same entry, client bun
 
 > A second, rendering-level check lives beside it: `scripts/verify-ui.mjs` drives the isolated
 > instance with headless Chrome over CDP and asserts the widget mounts into `shell.overlay`, starts,
-> pauses, skips, resets, opens settings and survives a reload (33 checks, screenshots). See
-> [verification.md](verification.md) for the observed run.
+> pauses, skips, resets, opens settings and survives a reload, plus the Plugins page controls. A third,
+> `scripts/verify-board.mjs`, exercises the task board end to end (seeded SQLite board, sections,
+> composer, drawer, drag & drop, keyboard moves, measured focus credits, JSON import/export, ARIA).
+> See [verification.md](verification.md) for the observed runs.
 
 `scripts/verify-plugin.sh` automates the recipe above (static manifest/patch checks + isolated
 install/boot/graph/URL checks), writes only into a temp directory, never touches `~/.dsh`, and

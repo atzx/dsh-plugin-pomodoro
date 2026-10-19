@@ -196,3 +196,87 @@ test('tick is a no-op when stopped and reports the completed phase exactly once'
   const second = tick(first.state, T0 + 25 * MIN)
   assert.equal(second.completed, null)
 })
+
+/* ─────────────────────── task focus accounting ────────────────── */
+
+import {
+  attachTask,
+  beginFocusSegment,
+  catchUpFocus,
+  settleFocus,
+} from '../src/timer-core.js'
+
+/** A task-linked running focus phase started at T0. */
+function focusedTask(settings = DEFAULT_SETTINGS) {
+  return beginFocusSegment(attachTask(start(createState(settings), T0), 'task-1', 'Write docs'), T0)
+}
+
+test('beginFocusSegment marks running task-linked focus phases only', () => {
+  const linked = focusedTask()
+  assert.equal(linked.focusStartedAt, T0)
+  assert.equal(linked.taskId, 'task-1')
+  assert.equal(linked.taskTitle, 'Write docs')
+
+  assert.equal(beginFocusSegment(start(createState(), T0), T0).focusStartedAt, null, 'no task')
+  assert.equal(beginFocusSegment(attachTask(createState(), 'task-1'), T0).focusStartedAt, null, 'not running')
+  const breakState = { ...focusedTask(), phase: PHASE.SHORT_BREAK }
+  assert.equal(beginFocusSegment(breakState, T0).focusStartedAt, null, 'break phase')
+})
+
+test('settleFocus measures the real segment and clamps it to the phase', () => {
+  const settled = settleFocus(focusedTask(), T0 + 10 * MIN)
+  assert.equal(settled.state.focusStartedAt, null)
+  assert.deepEqual(settled.credit, {
+    taskId: 'task-1',
+    creditId: `task-1@${T0}`,
+    deltaMs: 10 * MIN,
+    pomodoros: 0,
+  })
+  assert.equal(settleFocus(focusedTask(), T0).credit, null, 'no time elapsed')
+  assert.equal(settleFocus(focusedTask(), T0 + 99 * MIN).credit.deltaMs, 25 * MIN, 'clamped to the phase')
+  assert.equal(settleFocus(createState(), T0 + MIN).credit, null, 'no task')
+  const completed = settleFocus(focusedTask(), T0 + 25 * MIN, { pomodoros: 1 })
+  assert.equal(completed.credit.pomodoros, 1)
+})
+
+test('settleFocus does not credit beyond the deadline', () => {
+  const state = focusedTask()
+  const credit = settleFocus(state, state.deadline + 60 * MIN).credit
+  assert.equal(credit.deltaMs, 25 * MIN)
+})
+
+test('catchUpFocus credits completed focus phases and restarts the segment', () => {
+  const running = focusedTask()
+  // 26 minutes later: the focus block completed; its break auto-started.
+  const caught = catchUpFocus(running, T0 + 26 * MIN)
+  assert.deepEqual(caught.completed, [PHASE.FOCUS])
+  assert.equal(caught.credits.length, 1)
+  assert.equal(caught.credits[0].taskId, 'task-1')
+  assert.equal(caught.credits[0].deltaMs, 25 * MIN)
+  assert.equal(caught.credits[0].pomodoros, 1)
+  assert.equal(caught.state.phase, PHASE.SHORT_BREAK)
+  assert.equal(caught.state.status, STATUS.RUNNING)
+  assert.equal(caught.state.focusStartedAt, null, 'a break is not measured')
+
+  // Still inside the focus block: no credit, segment restarts at the phase start.
+  const inside = catchUpFocus(running, T0 + 10 * MIN)
+  assert.equal(inside.credits.length, 0)
+  assert.equal(inside.state.focusStartedAt, T0)
+})
+
+test('attachTask links and clears the task snapshot', () => {
+  const linked = attachTask(createState(), 'task-9', 'Title')
+  assert.equal(linked.taskId, 'task-9')
+  assert.equal(linked.taskTitle, 'Title')
+  const cleared = attachTask(linked, null)
+  assert.equal(cleared.taskId, null)
+  assert.equal(cleared.taskTitle, null)
+})
+
+test('serialize/deserialize keep the task link and running segment', () => {
+  const running = focusedTask()
+  const restored = deserialize(serialize(running), T0 + MIN)
+  assert.equal(restored.taskId, 'task-1')
+  assert.equal(restored.taskTitle, 'Write docs')
+  assert.equal(restored.focusStartedAt, T0)
+})

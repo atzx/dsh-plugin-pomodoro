@@ -27,7 +27,15 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const SOURCES = ['src/timer-core.js', 'src/locales.js', 'src/client.js']
+const SOURCES = [
+  'src/timer-core.js',
+  'src/locales.js',
+  'src/tasks-core.js',
+  'src/board-store.js',
+  'src/board-styles.js',
+  'src/board-ui.js',
+  'src/client.js',
+]
 const OUTPUT = join(ROOT, 'lib/client.js')
 const PKG_NAME = 'dsh-plugin-pomodoro'
 

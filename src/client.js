@@ -24,6 +24,9 @@
 
 import * as React from 'react'
 import { NS, en, zh } from './locales.js'
+import { boardUiStore } from './board-store.js'
+import { TaskBoardPanel } from './board-ui.js'
+import { injectBoardStyles } from './board-styles.js'
 import {
   DEFAULT_SETTINGS,
   PHASE,
@@ -113,6 +116,19 @@ const CSS = `
   border-color: var(--dsw-alias-border-l3);
 }
 .pomo-pill:active { transform: scale(.97); }
+.pomo-pillGroup { display: inline-flex; align-items: stretch; gap: 4px; }
+.pomo-pillSide {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 30px; min-height: 30px; padding: 0;
+  border: 1px solid var(--dsw-alias-border-l2); border-radius: 999px;
+  background: var(--dsw-specific-menu);
+  backdrop-filter: blur(40px) saturate(1.5);
+  -webkit-backdrop-filter: blur(40px) saturate(1.5);
+  box-shadow: var(--dsw-shadow-lv2, 0 4px 12px rgba(0,0,0,.06));
+  color: var(--dsw-alias-label-secondary); cursor: pointer;
+}
+.pomo-pillSide:hover, .pomo-pillSide:focus-visible { color: var(--dsw-alias-label-primary); border-color: var(--dsw-alias-border-l3); }
+.pomo-pillSide:focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary); outline-offset: 2px; }
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .pomo-pill, .pomo-card { background: var(--dsw-alias-bg-layer-2); }
 }
@@ -593,6 +609,14 @@ function TomatoIcon({ size = 15 }) {
   }))
 }
 
+/** 16px three-column board glyph. */
+function BoardIcon({ size = 15 }) {
+  return h('svg', { width: size, height: size, viewBox: '0 0 16 16', fill: 'none', 'aria-hidden': 'true' },
+    h('rect', { x: 1.6, y: 2.4, width: 3.6, height: 11.2, rx: 1.1, fill: 'currentColor' }),
+    h('rect', { x: 6.2, y: 2.4, width: 3.6, height: 8, rx: 1.1, fill: 'currentColor' }),
+    h('rect', { x: 10.8, y: 2.4, width: 3.6, height: 10, rx: 1.1, fill: 'currentColor' }))
+}
+
 /** 14px chevron pointing down (collapse / back). */
 function ChevronDownIcon({ size = 14 }) {
   return h('svg', { width: size, height: size, viewBox: '0 0 14 14', fill: 'none', 'aria-hidden': 'true' },
@@ -687,6 +711,7 @@ function SwitchRow({ setting, label, hint, checked, onToggle }) {
  */
 function PomodoroWidget({ t }) {
   const prefs = React.useSyncExternalStore(subscribePrefs, getPrefs, getPrefs)
+  const boardUi = React.useSyncExternalStore(boardUiStore.subscribe, boardUiStore.getSnapshot, boardUiStore.getSnapshot)
   const initial = React.useMemo(() => loadTimerState(), [])
 
   const stateRef = React.useRef(initial)
@@ -884,6 +909,23 @@ function PomodoroWidget({ t }) {
     return () => document.removeEventListener('keydown', onKey, true)
   })
 
+  // `B` opens or closes the task board from anywhere except a text field.
+  React.useEffect(() => {
+    const onKeyDown = event => {
+      if (event.key !== 'b' && event.key !== 'B') return
+      if (event.metaKey || event.ctrlKey || event.altKey) return
+      const target = event.target
+      if (target instanceof HTMLElement) {
+        const tag = target.tagName
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable) return
+      }
+      event.preventDefault()
+      boardUiStore.toggleOpen()
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [])
+
   const clock = formatClock(remaining(state, now))
   const fraction = fractionRemaining(state, now)
   const phaseLabel = t(state.phase === PHASE.FOCUS
@@ -1029,6 +1071,13 @@ function PomodoroWidget({ t }) {
     h('span', { className: 'pomo-phase' }, phaseLabel),
     h('div', { className: 'pomo-headActions' },
       ui.panel === 'settings'
+        ? null
+        : h('button', {
+          type: 'button', className: 'pomo-iconBtn', 'data-pomo-action': 'board',
+          'aria-label': t('board.open'), title: t('board.open'),
+          onClick: () => boardUiStore.setOpen(true),
+        }, h(BoardIcon, { size: 14 })),
+      ui.panel === 'settings'
         ? h('button', {
           type: 'button', className: 'pomo-iconBtn', 'data-pomo-action': 'back',
           'aria-label': t('action.back'), title: t('action.back'),
@@ -1042,28 +1091,40 @@ function PomodoroWidget({ t }) {
       }, h(ChevronDownIcon, { size: 14 })))),
   ui.panel === 'settings' ? settingsPanel : timerPanel)
 
-  const pill = h('button', {
-    type: 'button',
-    className: 'pomo-pill',
-    'data-pomo-action': 'toggle',
-    onClick: toggleExpanded,
-    'aria-label': t('widget.open'),
-    title: `${t('widget.label')} — ${clock}`,
-  },
-  h('span', { className: 'pomo-pillIcon' }, h(TomatoIcon, { size: 15 })),
-  h('span', { className: 'pomo-pillTime' }, clock),
-  h('span', { className: 'pomo-pillPhase' }, phaseLabel),
-  state.status === STATUS.RUNNING || state.status === STATUS.PAUSED
-    ? h('span', { className: 'pomo-pulse', 'aria-hidden': 'true' })
-    : null)
+  const pill = h('div', { className: 'pomo-pillGroup' },
+    h('button', {
+      type: 'button',
+      className: 'pomo-pill',
+      'data-pomo-action': 'toggle',
+      onClick: toggleExpanded,
+      'aria-label': t('widget.open'),
+      title: `${t('widget.label')} — ${clock}`,
+    },
+    h('span', { className: 'pomo-pillIcon' }, h(TomatoIcon, { size: 15 })),
+    h('span', { className: 'pomo-pillTime' }, clock),
+    h('span', { className: 'pomo-pillPhase' }, phaseLabel),
+    state.status === STATUS.RUNNING || state.status === STATUS.PAUSED
+      ? h('span', { className: 'pomo-pulse', 'aria-hidden': 'true' })
+      : null),
+    h('button', {
+      type: 'button',
+      className: 'pomo-pillSide',
+      'data-pomo-action': 'board',
+      'aria-label': t('board.open'),
+      title: t('board.open'),
+      onClick: () => boardUiStore.setOpen(true),
+    }, h(BoardIcon, { size: 15 })))
 
-  if (!prefs.widgetEnabled) return null
+  const widget = prefs.widgetEnabled
+    ? h('div', {
+      className: 'pomo-root',
+      'data-phase': state.phase,
+      'data-status': state.status,
+      'data-board-open': boardUi.open ? 'true' : 'false',
+    }, ui.expanded ? card : pill)
+    : null
 
-  return h('div', {
-    className: 'pomo-root',
-    'data-phase': state.phase,
-    'data-status': state.status,
-  }, ui.expanded ? card : pill)
+  return h(React.Fragment, null, widget, h(TaskBoardPanel, { t }))
 }
 
 /* ─────────────────────── Plugins configuration page ─────────────── */
@@ -1178,6 +1239,7 @@ export function apply(ctx, config) {
   }
 
   injectStyles()
+  injectBoardStyles()
 
   ctx.effect(
     () => ctx.locale.register(NS, { zh, en }),

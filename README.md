@@ -119,6 +119,10 @@ choices in the settings panel win afterwards:
 
 ```
 src/timer-core.js    pure state machine (phases, deadlines, catch-up, settings)
+src/tasks-core.js    pure board rules (sections, metrics, search, ordering)
+src/board-store.js   board API bridge, observable snapshots, per-window UI state
+src/board-styles.js  board stylesheet (design tokens only)
+src/board-ui.js      Trello-style board overlay (columns, cards, stats, search)
 src/locales.js       en + zh dictionaries
 src/client.js        React widget, Plugins configuration page + cordis plugin body
 lib/client.js        GENERATED browser bundle (what the host serves)

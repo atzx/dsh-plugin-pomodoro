@@ -1,0 +1,13 @@
+# Dependencies (only needed to run the tests locally; the plugin itself has none)
+node_modules/
+
+# Local screenshots/scratch output
+tmp/
+*.log
+
+# OS noise
+.DS_Store
+
+# Local secrets, if anyone adds them later
+.env
+.env.*

@@ -1,0 +1,14 @@
+# Bundle layer for dsh-plugin-pomodoro.
+#
+# DSH composes a profile from its bundle list, then this package's patch layer.
+# `insert` adds a loader row; the row's `name` is the package specifier, which
+# the host also uses to discover the package's `dsh.client` browser half.
+#
+# Install: add this package to the profile's dependencies and add
+# "dsh-plugin-pomodoro" to the profile's dsh.profile.bundles list (see
+# docs/install.md). Uninstall: reverse those two edits and delete this file's
+# row by removing the bundle entry.
+- insert:
+    - id: pomodoro
+      name: dsh-plugin-pomodoro
+      config: {}

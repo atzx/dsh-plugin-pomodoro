@@ -122,7 +122,9 @@ src/timer-core.js    pure state machine (phases, deadlines, catch-up, settings)
 src/locales.js       en + zh dictionaries
 src/client.js        React widget, Plugins configuration page + cordis plugin body
 lib/client.js        GENERATED browser bundle (what the host serves)
-lib/index.js         host half: empty apply, kept so the loader has an entry
+lib/index.js         host half: opens the board SQLite database and publishes its /api routes
+lib/db.js            SQLite schema, migrations, board commands, export/import, backups
+lib/api.js           authenticated board HTTP routes (state, command, export, import)
 scripts/build.mjs    inlining build (local imports + require rewriting)
 scripts/verify-plugin.sh  isolated static + live install/boot check
 scripts/verify-ui.mjs     CDP-driven end-to-end UI check + screenshots
@@ -132,8 +134,11 @@ docs/                client API spec, install recipe, verification evidence
 
 ## Design notes
 
-- **Empty host half on purpose.** A browser-only plugin still needs a Loader entry: that entry is
-  what makes the client module system scan the package and serve its bundle.
+- **Host half owns the task board data.** The loader entry is what makes the client module system
+  scan the package, and the host half uses it to keep the board in SQLite
+  (`$DSH_HOME/pomodoro/board.sqlite`) behind five authenticated exact routes
+  (`/api/pomodoro-board/…`). The browser half only renders and edits through them — no board data
+  lives in `localStorage`. Profiles without a `connection` service load the plugin inert (headless).
 - **Hand-written bundle.** `lib/client.js` is committed and consumed straight from the package, so
   installing needs no build tool. `scripts/build.mjs` only inlines the `src/` modules and rewrites
   `react` imports into the factory's `require`, mirroring how DSH's own client plugins are shipped.

@@ -16,7 +16,9 @@
     "lib/index.js",
     "lib/client.js",
     "cordis.patch.yml",
-    "README.md"
+    "README.md",
+    "lib/db.js",
+    "lib/api.js"
   ],
   "dsh": {
     "bundle": {

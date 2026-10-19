@@ -670,7 +670,7 @@ function TaskBoardErrorBar({ t, message }) {
 
 
 /** Board-level menu: JSON export, JSON import with a confirmation dialog. */
-function TaskBoardBoardMenu({ t }) {
+export function TaskBoardBoardMenu({ t }) {
   const modalRef = BoardReact.useRef(null)
   const [open, setOpen] = BoardReact.useState(false)
   const [pending, setPending] = BoardReact.useState(null)
@@ -773,12 +773,14 @@ function TaskBoardColorSelect({ t, value, onChange, ariaLabel }) {
   }, ...LABEL_COLORS.map(color => bh('option', { key: color, value: color }, t(`label.color.${color}`))))
 }
 
-/** Label assignment for one task (chips + a menu of the board's labels). */
-function TaskBoardLabelPicker({ t, board, task, onManage }) {
-  const [open, setOpen] = React.useState(false)
-  const menuRef = React.useRef(null)
-  const close = React.useCallback(() => setOpen(false), [])
-  useOutsideDismiss(menuRef, open, close)
+/**
+ * Label assignment for one task: chips for the assigned labels plus an inline,
+ * full-width panel listing every board label. The panel expands inside the
+ * drawer instead of floating over it, so it can never be clipped or drift
+ * outside the drawer.
+ */
+export function TaskBoardLabelPicker({ t, board, task, onManage, defaultOpen = false }) {
+  const [open, setOpen] = BoardReact.useState(defaultOpen === true)
   const assigned = (task.labelIds ?? []).map(id => board.labels.find(label => label.id === id)).filter(label => label !== undefined)
 
   const toggle = async labelId => {
@@ -801,39 +803,49 @@ function TaskBoardLabelPicker({ t, board, task, onManage }) {
         'aria-label': t('label.remove', { name: label.name }),
         onClick: () => void toggle(label.id),
       }, '×'))),
-      bh('div', { className: 'tb-menuWrap', ref: menuRef },
-        bh('button', {
+      bh('button', {
+        type: 'button',
+        className: 'tb-quickBtn',
+        'aria-expanded': open,
+        'aria-controls': 'pomodoro-label-panel',
+        onClick: () => setOpen(value => !value),
+      }, open ? '− ' : '+ ', t('label.add'))),
+    open ? bh('div', {
+      id: 'pomodoro-label-panel',
+      className: 'tb-labelPanel',
+      role: 'group',
+      'aria-label': t('drawer.labels'),
+    },
+    board.labels.length === 0
+      ? bh('div', { className: 'tb-empty' }, t('label.none'))
+      : bh('div', { className: 'tb-checkList' },
+        ...board.labels.map(label => bh('button', {
+          key: label.id,
           type: 'button',
-          className: 'tb-quickBtn',
-          'aria-expanded': open,
-          onClick: () => setOpen(value => !value),
-        }, '+ ', t('label.add')),
-        open ? bh('div', { className: 'tb-menu', role: 'menu' },
-          ...(board.labels.length === 0
-            ? [bh('div', { key: 'none', className: 'tb-menuHeading' }, t('label.none'))]
-            : board.labels.map(label => bh('button', {
-              key: label.id,
-              type: 'button',
-              className: 'tb-menuItem',
-              role: 'menuitemcheckbox',
-              'aria-checked': (task.labelIds ?? []).includes(label.id),
-              onClick: () => void toggle(label.id),
-            },
-            bh('span', { className: `tb-dot tb-color-${label.color} tb-colorTarget`, 'aria-hidden': 'true' }),
-            label.name,
-            (task.labelIds ?? []).includes(label.id) ? ' ✓' : ''))),
-          bh('div', { className: 'tb-menuSeparator' }),
-          bh('button', {
-            type: 'button',
-            className: 'tb-menuItem',
-            role: 'menuitem',
-            onClick: () => { setOpen(false); onManage() },
-          }, t('label.manage'))) : null)))
+          role: 'checkbox',
+          className: 'tb-checkItem',
+          'data-checked': (task.labelIds ?? []).includes(label.id) ? 'true' : 'false',
+          'aria-checked': (task.labelIds ?? []).includes(label.id),
+          onClick: () => void toggle(label.id),
+        },
+        bh('span', { className: `tb-dot tb-color-${label.color} tb-colorTarget`, 'aria-hidden': 'true' }),
+        label.name))),
+    bh('div', { className: 'tb-labelPanelFooter' },
+      bh('button', {
+        type: 'button',
+        className: 'tb-btn',
+        onClick: onManage,
+      }, t('label.manage')),
+      bh('button', {
+        type: 'button',
+        className: 'tb-quickBtn',
+        onClick: () => setOpen(false),
+      }, t('action.close')))) : null)
 }
 
 /** Checklist of one task's subtasks, with inline add/delete/toggle. */
-function TaskBoardSubtaskList({ t, task }) {
-  const [draft, setDraft] = React.useState('')
+export function TaskBoardSubtaskList({ t, task }) {
+  const [draft, setDraft] = BoardReact.useState('')
   const subtasks = task.subtasks ?? []
 
   const add = async event => {
@@ -880,19 +892,19 @@ function TaskBoardSubtaskList({ t, task }) {
  * Right-hand task detail drawer: every editable field of one task, all writing
  * through `boardStore` with the host as the source of truth.
  */
-function TaskBoardDrawer({ t, task, board, onClose, onManageLabels }) {
+export function TaskBoardDrawer({ t, task, board, onClose, onManageLabels }) {
   const active = useActiveTask()
   const drawerRef = BoardReact.useRef(null)
   useFocusTrap(drawerRef, true)
-  const [title, setTitle] = React.useState(task.title)
-  const [notes, setNotes] = React.useState(task.notes)
-  const [estimate, setEstimate] = React.useState(task.estimateMin === null || task.estimateMin === undefined ? '' : String(task.estimateMin))
-  const [confirmDelete, setConfirmDelete] = React.useState(false)
+  const [title, setTitle] = BoardReact.useState(task.title)
+  const [notes, setNotes] = BoardReact.useState(task.notes)
+  const [estimate, setEstimate] = BoardReact.useState(task.estimateMin === null || task.estimateMin === undefined ? '' : String(task.estimateMin))
+  const [confirmDelete, setConfirmDelete] = BoardReact.useState(false)
   const today = localDateKey()
 
-  React.useEffect(() => { setTitle(task.title) }, [task.title])
-  React.useEffect(() => { setNotes(task.notes) }, [task.notes])
-  React.useEffect(() => {
+  BoardReact.useEffect(() => { setTitle(task.title) }, [task.title])
+  BoardReact.useEffect(() => { setNotes(task.notes) }, [task.notes])
+  BoardReact.useEffect(() => {
     setEstimate(task.estimateMin === null || task.estimateMin === undefined ? '' : String(task.estimateMin))
   }, [task.estimateMin])
 
@@ -1043,23 +1055,23 @@ function TaskBoardDrawer({ t, task, board, onClose, onManageLabels }) {
 }
 
 /** Full task composer, opened from the board header. */
-function TaskBoardComposerDialog({ t, board, onClose }) {
+export function TaskBoardComposerDialog({ t, board, onClose }) {
   const modalRef = BoardReact.useRef(null)
   useFocusTrap(modalRef, true)
   const firstOpen = board.lists.find(list => !list.isDone) ?? board.lists[0]
-  const [title, setTitle] = React.useState('')
-  const [listId, setListId] = React.useState(firstOpen?.id ?? '')
-  const [priority, setPriority] = React.useState('none')
-  const [due, setDue] = React.useState('')
-  const [estimate, setEstimate] = React.useState('')
-  const [labelIds, setLabelIds] = React.useState([])
-  const [notes, setNotes] = React.useState('')
-  const [subtasks, setSubtasks] = React.useState([])
-  const [subDraft, setSubDraft] = React.useState('')
-  const [busy, setBusy] = React.useState(false)
-  const titleRef = React.useRef(null)
+  const [title, setTitle] = BoardReact.useState('')
+  const [listId, setListId] = BoardReact.useState(firstOpen?.id ?? '')
+  const [priority, setPriority] = BoardReact.useState('none')
+  const [due, setDue] = BoardReact.useState('')
+  const [estimate, setEstimate] = BoardReact.useState('')
+  const [labelIds, setLabelIds] = BoardReact.useState([])
+  const [notes, setNotes] = BoardReact.useState('')
+  const [subtasks, setSubtasks] = BoardReact.useState([])
+  const [subDraft, setSubDraft] = BoardReact.useState('')
+  const [busy, setBusy] = BoardReact.useState(false)
+  const titleRef = BoardReact.useRef(null)
 
-  React.useEffect(() => { titleRef.current?.focus() }, [])
+  BoardReact.useEffect(() => { titleRef.current?.focus() }, [])
 
   const toggleLabel = id => setLabelIds(current => current.includes(id) ? current.filter(item => item !== id) : [...current, id])
 
@@ -1202,10 +1214,12 @@ function TaskBoardComposerDialog({ t, board, onClose }) {
 }
 
 /** Board-wide label manager: create, recolor and delete labels. */
-function TaskBoardLabelManager({ t, board, onClose }) {
-  const [name, setName] = React.useState('')
-  const [color, setColor] = React.useState('blue')
-  const [pendingDelete, setPendingDelete] = React.useState(null)
+export function TaskBoardLabelManager({ t, board, onClose }) {
+  const modalRef = BoardReact.useRef(null)
+  useFocusTrap(modalRef, true)
+  const [name, setName] = BoardReact.useState('')
+  const [color, setColor] = BoardReact.useState('blue')
+  const [pendingDelete, setPendingDelete] = BoardReact.useState(null)
 
   const create = async event => {
     event.preventDefault()
@@ -1235,7 +1249,7 @@ function TaskBoardLabelManager({ t, board, onClose }) {
           onChange: next => void boardStore.updateLabel(label.id, { color: next }),
         }),
         pendingDelete === label.id
-          ? bh(React.Fragment, null,
+          ? bh(BoardReact.Fragment, null,
             bh('button', { type: 'button', className: 'tb-btn', onClick: () => setPendingDelete(null) }, t('action.cancel')),
             bh('button', { type: 'button', className: 'tb-btn', 'data-variant': 'danger', onClick: () => void boardStore.deleteLabel(label.id).then(() => setPendingDelete(null)) }, t('label.deleteConfirm')))
           : bh(TaskBoardIconButton, { label: t('label.delete', { name: label.name }), onClick: () => setPendingDelete(label.id) }, '×'))),

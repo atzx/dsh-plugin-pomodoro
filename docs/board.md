@@ -38,6 +38,14 @@ the timer pill/card or with **`B`**; it renders as a modal over the app and clos
 
 Search and label filters apply on top of the active section.
 
+### Labels
+- Labels are board-wide: create, recolor and delete them from the **label manager** (header `#`
+  button, or *Manage labels* inside the picker).
+- In the drawer, **+ Label** expands an inline panel with every label as a checkbox. The panel is
+  part of the drawer layout (not a floating popover), so it always stays inside the drawer and
+  spans its width; assigned labels appear as removable chips above it.
+- Deleting a label removes it from every card; the label manager asks for confirmation.
+
 ### Metrics
 For the filtered set `S`:
 

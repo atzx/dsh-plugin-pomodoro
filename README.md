@@ -55,6 +55,10 @@ requests.
 |---|---|---|
 | ![Timer focused on a task](docs/screenshots/timer-focus.webp) | ![Board menu](docs/screenshots/board-menu.webp) | ![Import](docs/screenshots/board-import.webp) |
 
+| Inline label panel in the drawer | Label manager |
+|---|---|
+| ![Inline label picker](docs/screenshots/task-labels-picker.webp) | ![Label manager](docs/screenshots/labels-manager.webp) |
+
 The timer widget and its Plugins configuration page are unchanged:
 
 | Collapsed | Expanded | Plugins → Configure |

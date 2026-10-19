@@ -4,12 +4,12 @@ Status: **executed on this machine on 2026-10-19.** The package was installed in
 `~/.dsh/profiles/desktop` with the app's bundled CLI (backups:
 `package.json.bak-pomodoro-20261019-042332`, `cordis.patch.yml.bak-pomodoro-20261019-042332`).
 The running app was not restarted during the editing session, so the desktop window still shows
-the pre-install state; a relaunch is required for it to load the plugin. v0.2.0 also adds the task
+the pre-install state; a relaunch is required for it to load the plugin. v0.2.1 also adds the task
 board: on the next host start it creates `$DSH_HOME/pomodoro/board.sqlite` and serves the five
 `/api/pomodoro-board/*` routes through the connection carrier. Every live check below
 was performed against throw-away, isolated DSH instances under `/tmp`.
 
-Target package: [`pomodoro-plugin`](../README.md) — name **`dsh-plugin-pomodoro`** (v0.1.0),
+Target package: [`pomodoro-plugin`](../README.md) — name **`dsh-plugin-pomodoro`** (v0.2.1),
 a browser-only DSH client plugin with an empty host half and its own bundle patch file.
 
 Verified against:

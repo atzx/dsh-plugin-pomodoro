@@ -44,6 +44,7 @@ class Session {
     this.nextId = 1
     this.pending = new Map()
     this.errors = []
+    this.consoleErrors = []
     socket.addEventListener('message', event => {
       const message = JSON.parse(event.data)
       if (message.id !== undefined && this.pending.has(message.id)) {
@@ -55,6 +56,13 @@ class Session {
       }
       if (message.method === 'Runtime.exceptionThrown') {
         this.errors.push((message.params.exceptionDetails.exception?.description || message.params.exceptionDetails.text || '').slice(0, 400))
+      }
+      if (message.method === 'Runtime.consoleAPICalled' && (message.params.type === 'error' || message.params.type === 'assert')) {
+        const text = (message.params.args ?? []).map(argument => argument.value ?? argument.description ?? '').join(' ')
+        this.consoleErrors.push(text.slice(0, 400))
+      }
+      if (message.method === 'Log.entryAdded' && message.params.entry.level === 'error') {
+        this.consoleErrors.push(`[log] ${message.params.entry.text}`.slice(0, 400))
       }
     })
   }
@@ -140,7 +148,12 @@ async function dismissAppDialogs(session) {
       const dialogs = [...document.querySelectorAll('[role="dialog"]')].filter(d => !d.classList.contains('tb-panel') && !d.classList.contains('tb-drawer') && !d.classList.contains('tb-modal'))
       if (dialogs.length === 0) return true
       const buttons = [...dialogs[0].querySelectorAll('button')]
-      const primary = buttons.find(b => /^(continue|got it|ok|understood|知道了|继续|开始使用|get started)$/i.test((b.textContent || '').trim())) ?? buttons.at(-1)
+      // Prefer acknowledging/continuing; otherwise close. Never click the
+      // app's "Sign in" button: in a throw-away profile it starts an external
+      // auth flow and leaves a "Waiting for sign in" overlay on screen.
+      const continueButton = buttons.find(b => /^(continue|got it|ok|understood|知道了|继续|开始使用|get started)$/i.test((b.textContent || '').trim()))
+      const closeButton = buttons.find(b => /close|dismiss|cancel|关闭|取消/i.test(b.getAttribute('aria-label') ?? '') || (b.textContent || '').trim() === '')
+      const primary = continueButton ?? closeButton
       if (primary === undefined) return false
       primary.click()
       await new Promise(resolve => setTimeout(resolve, 350))
@@ -160,6 +173,18 @@ async function openBoard(session) {
   await dismissAppDialogs(session)
   await session.waitFor(`document.querySelector('#root[inert]') === null`, 15_000, 'root not inert')
 }
+
+const rectOf = (session, selector) => session.eval(`(() => {
+  const node = document.querySelector(${JSON.stringify(selector)})
+  if (node === null) return null
+  const box = node.getBoundingClientRect()
+  return { x: box.x, y: box.y, width: box.width, height: box.height, right: box.right, bottom: box.bottom }
+})()`)
+const inside = (outer, inner, tolerance = 1.5) => inner !== null && outer !== null
+  && inner.x >= outer.x - tolerance && inner.y >= outer.y - tolerance
+  && inner.right <= outer.right + tolerance && inner.bottom <= outer.bottom + tolerance
+const centredIn = (outer, inner, tolerance = 2) => inside(outer, inner)
+  && Math.abs((inner.x + inner.width / 2) - (outer.x + outer.width / 2)) <= tolerance
 
 const hostBoard = session => session.eval(`fetch('/api/pomodoro-board/state').then(r => r.json()).then(j => JSON.stringify(j.board))`).then(JSON.parse)
 const timerState = session => session.eval(`localStorage.getItem('dsh-plugin-pomodoro:state:v1')`).then(raw => (raw === null ? null : JSON.parse(raw)))
@@ -198,6 +223,7 @@ async function main() {
   const session = await connect()
   await session.send('Page.enable')
   await session.send('Runtime.enable')
+  await session.send('Log.enable')
   await session.send('DOM.enable')
   // A fresh throw-away profile may try to redirect to the platform sign-in;
   // keep the run on the local instance.
@@ -289,8 +315,91 @@ async function main() {
   await pause(400)
   board = await hostBoard(session)
   check('drawer toggles a subtask', taskByTitle(board, 'Tarea E2E').subtasks[0].done === true)
+
+  // labels: the inline picker lives inside the drawer, not in a floating popover
+  check('trigger opens the inline label panel', await session.eval(`(() => {
+    const trigger = document.querySelector('.tb-drawer [aria-controls="pomodoro-label-panel"]')
+    if (trigger === null) return false
+    if (trigger.getAttribute('aria-expanded') !== 'true') trigger.click()
+    return true
+  })()`))
+  await session.waitFor(`document.querySelector('.tb-drawer .tb-labelPanel') !== null`, 8_000, 'inline label panel')
+  await pause(250)
+  const drawer = await rectOf(session, '.tb-drawer')
+  const labelPanel = await rectOf(session, '.tb-drawer .tb-labelPanel')
+  check('label panel stays inside the drawer', inside(drawer, labelPanel), { drawer, labelPanel })
+  check('label panel is centred in the drawer', centredIn(drawer, labelPanel), { drawer: drawer && drawer.x + drawer.width / 2, panel: labelPanel && labelPanel.x + labelPanel.width / 2 })
+  check('label panel spans the drawer width', labelPanel !== null && drawer !== null && labelPanel.width >= drawer.width - 40, { panel: labelPanel && labelPanel.width, drawer: drawer && drawer.width })
+  await session.eval(`(() => { document.querySelector('.tb-drawer .tb-labelPanel [role="checkbox"]').click(); return true })()`)
+  await pause(500)
+  board = await hostBoard(session)
+  check('label panel assigns a label', taskByTitle(board, 'Tarea E2E').labelIds.length === 1, taskByTitle(board, 'Tarea E2E').labelIds)
+  check('assigned label shows as a drawer chip', await session.eval(`document.querySelectorAll('.tb-drawer .tb-labelToken').length === 1`))
+  await session.screenshot('task-labels-picker')
+  await session.eval(`(() => { document.querySelector('.tb-drawer .tb-labelToken button').click(); return true })()`)
+  await pause(500)
+  board = await hostBoard(session)
+  check('label chip removes the label', taskByTitle(board, 'Tarea E2E').labelIds.length === 0)
+
+  // manager opened from the inline panel: absolutely centred inside the board panel
+  await session.eval(`(() => {
+    const manage = [...document.querySelectorAll('.tb-drawer .tb-labelPanelFooter .tb-btn')].find(button => button.textContent.trim() === 'Manage labels')
+    if (manage === undefined) return false
+    manage.click()
+    return true
+  })()`)
+  await session.waitFor(`document.querySelector('.tb-modal') !== null`, 8_000, 'label manager from panel')
+  await pause(300)
+  const boardPanel = await rectOf(session, '.tb-panel')
+  const manager = await rectOf(session, '.tb-modal')
+  check('label manager is centred in the board panel', centredIn(boardPanel, manager), { boardPanel, manager })
+  check('label manager lists every label', await session.eval(`document.querySelectorAll('.tb-modal .tb-labelManageRow').length === 4`))
+  await session.screenshot('labels-manager')
+  await session.eval(`(() => {
+    const input = document.querySelector('.tb-modal [aria-label="Label name"]')
+    input.focus()
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'E2E etiqueta')
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    return true
+  })()`)
+  await pause(150)
+  await session.eval(`document.querySelector('.tb-modal form.tb-labelManageRow .tb-btn[data-variant="primary"]').click()`)
+  await pause(600)
+  board = await hostBoard(session)
+  check('label manager creates a label', board.labels.some(label => label.name === 'E2E etiqueta'), board.labels.map(label => label.name))
+  await session.eval(`(() => {
+    const row = [...document.querySelectorAll('.tb-modal .tb-labelManageRow')].find(node => node.querySelector('.tb-labelName')?.textContent === 'E2E etiqueta')
+    if (row === undefined) return false
+    const remove = [...row.querySelectorAll('button')].find(button => (button.getAttribute('aria-label') ?? '').startsWith('Delete label'))
+    if (remove === undefined) return false
+    remove.click()
+    return true
+  })()`)
+  await pause(300)
+  await session.eval(`document.querySelector('.tb-modal .tb-labelManageRow .tb-btn[data-variant="danger"]').click()`)
+  await pause(600)
+  board = await hostBoard(session)
+  check('label manager deletes a label', !board.labels.some(label => label.name === 'E2E etiqueta'), board.labels.map(label => label.name))
+  await session.eval(`document.querySelector('.tb-modal .tb-modalFooter .tb-btn').click()`)
+  await session.waitFor(`document.querySelector('.tb-modal') === null`, 8_000, 'label manager closed')
+  check('board survives the label manager round-trip', await session.eval(`document.querySelector('.tb-drawer') !== null && document.querySelector('.tb-panel .tb-column') !== null`))
+
+  // the header entry point opens the same manager
+  await session.eval(`(() => { const close = document.querySelector('.tb-drawer .tb-labelPanelFooter .tb-quickBtn'); if (close !== null) close.click(); return true })()`)
+  await pause(200)
   await session.eval(`document.querySelector('.tb-drawer [aria-label="Close task details"]').click()`)
   await pause(300)
+  await session.eval(`document.querySelector('.tb-header [aria-label="Manage labels"]').click()`)
+  await session.waitFor(`document.querySelector('.tb-modal') !== null`, 8_000, 'label manager from header')
+  await pause(300)
+  check('label manager opens from the header and stays centred', await session.eval(`(() => {
+    const panel = document.querySelector('.tb-panel').getBoundingClientRect()
+    const modal = document.querySelector('.tb-modal').getBoundingClientRect()
+    return Math.abs((modal.x + modal.width / 2) - (panel.x + panel.width / 2)) <= 2 && modal.width <= panel.width
+  })()`))
+  await session.eval(`document.querySelector('.tb-modal .tb-modalFooter .tb-btn').click()`)
+  await session.waitFor(`document.querySelector('.tb-modal') === null`, 8_000, 'label manager closed')
+  check('board still renders after closing the manager', await session.eval(`document.querySelector('.tb-panel .tb-column') !== null`))
 
   // drag & drop
   await session.eval(`(async () => {
@@ -408,6 +517,12 @@ async function main() {
   await session.waitFor(`document.querySelector('.tb-modal') !== null`, 8_000, 'composer')
   check('composer traps focus inside the dialog', await session.eval(`(() => { const modal = document.querySelector('.tb-modal'); return modal !== null && modal.contains(document.activeElement) })()`))
   check('no page exceptions during the run', session.errors.length === 0, session.errors.slice(0, 2))
+  // A crashed slot entry logs through console.error and unmounts the overlay.
+  // Ignore the environment noise from blocking the platform sign-in redirect.
+  const expectedNoise = /(platform\.deepseek\.com|deepseek\.com|ERR_BLOCKED_BY_CLIENT|ERR_NAME_NOT_RESOLVED|Failed to fetch|401|Unauthorized)/i
+  const consoleErrors = session.consoleErrors.filter(text => !expectedNoise.test(text))
+  check('no console errors during the run', consoleErrors.length === 0, consoleErrors.slice(0, 3))
+  check('widget and board overlay are both mounted at the end', await session.eval(`document.querySelector('.pomo-root') !== null && document.querySelector('.tb-panel') !== null`))
 
   const failed = checks.filter(entry => !entry.ok)
   console.log(`\n${checks.length - failed.length}/${checks.length} board checks passed`)

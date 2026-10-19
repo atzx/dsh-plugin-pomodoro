@@ -378,6 +378,18 @@ export const BOARD_CSS = `
 .tb-labelName { flex: 1; min-width: 0; font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tb-colorSelect { flex: none; width: 92px; }
 .tb-checkList { display: flex; flex-wrap: wrap; gap: 6px; }
+.tb-labelPanel {
+  display: flex; flex-direction: column; gap: 8px;
+  box-sizing: border-box; width: 100%;
+  margin-top: 6px; padding: 8px;
+  border: 1px solid var(--dsw-alias-border-l2); border-radius: 9px;
+  background: var(--dsw-alias-bg-layer-2);
+}
+.tb-labelPanelFooter {
+  display: flex; align-items: center; justify-content: space-between; gap: 6px;
+  padding-top: 6px; border-top: 1px solid var(--dsw-alias-border-l2);
+}
+
 .tb-checkItem {
   display: inline-flex; align-items: center; gap: 5px;
   padding: 3px 8px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 999px;

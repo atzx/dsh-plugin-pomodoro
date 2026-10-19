@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-pomodoro",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "type": "module",
   "description": "Pomodoro timer and Trello-style task board for DeepSeek Harness: floating timer, SQLite-backed board with lists, labels, priorities, due dates, subtasks, smart sections and per-task focus time.",

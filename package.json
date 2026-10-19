@@ -1,9 +1,9 @@
 {
   "name": "dsh-plugin-pomodoro",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "Pomodoro focus timer for DeepSeek Harness: a live countdown in the shell overlay with focus/break cycles, long-break cadence, desktop notifications and persistent state.",
+  "description": "Pomodoro timer and Trello-style task board for DeepSeek Harness: floating timer, SQLite-backed board with lists, labels, priorities, due dates, subtasks, smart sections and per-task focus time.",
   "license": "MIT",
   "main": "./lib/index.js",
   "exports": {
@@ -39,7 +39,8 @@
     "test": "node --test tests/*.test.js",
     "verify:static": "./scripts/verify-plugin.sh --static-only",
     "verify": "./scripts/verify-plugin.sh",
-    "verify:ui": "node scripts/verify-ui.mjs"
+    "verify:ui": "node scripts/verify-ui.mjs",
+    "verify:board": "node scripts/verify-board.mjs"
   },
   "repository": {
     "type": "git",
